@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { Store } from '../src/app/store.ts'
 import { Prompts, builtInBase, composePrompt, defaultPrompts, policySection, promptParts, type PromptConfig } from '../src/app/prompts.ts'
 import { USER_ERRORS, UserError } from '../src/core/index.ts'
+import { windows } from '../src/infra/platform.ts'
 import { KV } from '../src/kv.ts'
 import { SettingsSchema, policyVersion } from '../src/policy.ts'
 import { guides, handoffPolicy, mainAdmissionPolicy, masterPrompt, sharedPrompt, workerPrompt } from '../src/app/context.ts'
@@ -57,7 +58,8 @@ it('assembles every role from fixed sections around the team sections, whatever 
   expect(composePrompt(config, 'worker')).not.toContain(mainAdmissionPolicy)
 })
 
-it('reads a prompt file whatever its line ends and blank lines, and names a missing or empty one', () => {
+// promptFile resolves a name under prompts/; a temporary directory on another Windows drive has no such relative path.
+it.skipIf(windows)('reads a prompt file whatever its line ends and blank lines, and names a missing or empty one', () => {
   const dir = mkdtempSync(join(tmpdir(), 'prompt-file-'))
   // promptFile resolves paths relative to prompts/; use a relative path to reach the temp dir.
   const name = (file: string) => relative(packagePath('prompts'), join(dir, file))

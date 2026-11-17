@@ -21,6 +21,7 @@ Both presets run with `danger-full-access` as the operator's OS user and read me
 ## Prerequisites
 
 - Node.js 22.19+ or 24+, pnpm, git 2.32+, Python 3.8+ and tmux
+- On Windows, `scripts/dsh-superagent.ps1` replaces the tmux service manager, worker shims are `.cmd` files, and the prepare command is PowerShell; `docs/009-windows.md` lists every difference. tmux and Python are then not needed, but Git for Windows is, because the agent's git configuration runs its credential helper through `sh`.
 - GitHub CLI (`gh`) 2.48 or later. Source CLI fields must point to `gh` or `lark-cli` wrappers; the host relies on their subcommands and output formats.
 - A repository on github.com; GitHub Enterprise Server is not supported. To create a checkout per Ticket, keep a local clone from which the prepare command can add worktrees. Install `git-lfs` if that repository uses Git LFS.
 - A model provider configured for DeepSeek Harness. dsh-superagent uses the profile's default model unless the Eval or Execution settings name another.
@@ -109,6 +110,15 @@ scripts/dsh-superagent status
 `stop` and `restart` request graceful shutdown and wait up to five minutes for Executors. They never force-kill the process or touch other tmux sessions.
 
 `status` prints process ids, health and setup problems. For a different profile or port, use `--profile` and `--url`, or set `DSH_SUPERAGENT_PROFILE` and `DSH_SUPERAGENT_URL`.
+
+On Windows the same four actions and exit codes come from `scripts/dsh-superagent.ps1`, which takes `-Profile`, `-Url`, `-Timeout`, `-StopTimeout`, and `-RespectStop`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dsh-superagent.ps1 start
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dsh-superagent.ps1 status
+```
+
+It records the service PID in the profile's control directory and finds it by command line instead of through `ps`, so it also notices an instance started outside it. Without SIGINT, `stop` pauses the orchestrator through its management API and then terminates the process, so running Executor Sessions end with it; `docs/009-windows.md` has the details.
 
 `status`, `start` and `restart` exit with one of four codes:
 
@@ -217,7 +227,9 @@ curl -s -X PUT -H 'x-orchestrator-request: 1' -H 'content-type: application/json
 
 Setup uses the DeepSeek Harness subprocess service, as worker shells do. It removes environment variables whose names contain KEY, PASSWORD, SECRET or TOKEN.
 
-Setup verifies the GitHub repository and the agent's push access, writes the worker environment, and checks that git uses only the agent credentials for github.com. A Feishu setup failure disables only the Feishu Source.
+Setup verifies the GitHub repository and the agent's push access, that the agent's token may read notifications, writes the worker environment, and checks that git uses only the agent credentials for github.com. A Feishu setup failure disables only the Feishu Source.
+
+The notification check reads the scopes GitHub reports for the token. A token without `notifications` would leave the agent running and healthy while every request stayed invisible to it, so setup refuses it: `gh auth refresh -h github.com -s notifications` adds the scope. A fine-grained token reports no scopes at all, and the check passes it.
 
 The process environment that setup writes:
 

@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { threadKey, type Thread, type Trigger } from '../core/index.ts'
 import { feishuChatLink } from './feishu-channel.ts'
 import type { FeishuBot } from '../deployment.ts'
+import { launch, windows } from '../infra/platform.ts'
 import { validItems, type Tally } from '../infra/commands.ts'
 import { readFeishu, type FeishuRef } from './feishu-read.ts'
 import { feishuRef, feishuTime, feishuTrigger, HistoricalMessageSchema, historyEvent, HistoryPageSchema, SOURCE, topicEvent }
@@ -68,20 +69,30 @@ async function watch(ctx: SourceContext, signal: AbortSignal): Promise<void> {
 export const consumerRetry = (previous: number | undefined, ranMs: number): number =>
   previous === undefined || ranMs >= 60_000 ? 1000 : Math.min(previous * 2, 60_000)
 async function consume(ctx: SourceContext, signal: AbortSignal): Promise<void> {
-  const child = spawn(bot(ctx).cli, ['event', 'consume', 'im.message.receive_v1', '--as', 'bot'],
-    { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1',
+  // Windows cannot start a `.cmd` wrapper without a shell, so the configured CLI is started through its interpreter.
+  const target = launch(bot(ctx).cli, ['event', 'consume', 'im.message.receive_v1', '--as', 'bot'])
+  const child = spawn(target.program, target.args,
+    { ...target.options, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1',
       LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } })
   const stdout = createInterface({ input: child.stdout }); const stderr = createInterface({ input: child.stderr })
-  let chain = Promise.resolve(); let diagnostic = ''; let ready = false
-  const stop = (): void => { child.stdin.end(); child.kill('SIGTERM') }
+  let chain = Promise.resolve(); let ready = false
+  /** The last lines the CLI printed, so a failure says what it said rather than only its last line. */
+  const recent: string[] = []
+  const diagnostic = (): string => recent.join(' | ')
+  const stop = (): void => {
+    child.stdin.end()
+    // A `.cmd` shim runs the CLI under `cmd.exe`; killing only the shell would leave the event stream open.
+    if (windows && child.pid) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+    else child.kill('SIGTERM')
+  }
   signal.addEventListener('abort', stop, { once: true })
-  const timeout = setTimeout(() => { diagnostic = 'Feishu event consumer did not become ready within 45 seconds'; stop() }, 45_000)
+  const timeout = setTimeout(() => { recent.push('Feishu event consumer did not become ready within 45 seconds'); stop() }, 45_000)
   stderr.on('line', (line: string) => {
-    diagnostic = line.slice(0, 4000)
+    recent.push(line.slice(0, 400)); if (recent.length > 8) recent.shift()
     if (line.startsWith('[event] ready')) {
       ready = true; clearTimeout(timeout)
       ctx.report('feishu', { state: 'ready', detail: 'Listening for bot events', at: new Date().toISOString() })
-    } else if (/WARN|drop|error/.test(line)) ctx.report('feishu', { state: 'error', detail: diagnostic })
+    } else if (/WARN|drop|error/.test(line)) ctx.report('feishu', { state: 'error', detail: diagnostic() })
   })
   stdout.on('line', (line: string) => {
     chain = chain.then(async () => {
@@ -98,7 +109,7 @@ async function consume(ctx: SourceContext, signal: AbortSignal): Promise<void> {
   try {
     await new Promise<void>((resolve, reject) => {
       child.once('error', reject)
-      const exited = (code: number | null) => new Error(`Feishu event consumer exited (${code}, ready=${ready}): ${diagnostic}`)
+      const exited = (code: number | null) => new Error(`Feishu event consumer exited (${code}, ready=${ready}): ${diagnostic()}`)
       child.once('close', (code) => signal.aborted ? resolve() : reject(exited(code)))
     })
   } finally { clearTimeout(timeout); signal.removeEventListener('abort', stop); stdout.close(); stderr.close(); await chain }

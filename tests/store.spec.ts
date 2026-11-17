@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Store, SCHEMA_VERSION } from '../src/app/store.ts'
+import { windows } from '../src/infra/platform.ts'
 import { MemoryRepositories, key, type Assignment, type Decision, type Repositories, type Thread, type Ticket } from '../src/core/index.ts'
 import { threadFacts } from '../src/app/views/records.ts'
 import { KV } from '../src/kv.ts'
@@ -249,6 +250,11 @@ it('lists in the same order in SQLite and in memory, and undoes a failed nested 
 it('creates the state directory for its owner alone, and the database readable by its owner alone', () => {
   const path = join(directory, 'state', 'orchestrator.sqlite')
   new Store(path).close()
+  if (windows) {
+    // Windows has no POSIX permission bits: the mode arguments are ignored and every file reads 0o666 or 0o777.
+    expect([statSync(dirname(path)).isDirectory(), statSync(path).isFile()]).toEqual([true, true])
+    return
+  }
   expect([statSync(dirname(path)).mode & 0o777, statSync(path).mode & 0o777]).toEqual([0o700, 0o600])
 })
 

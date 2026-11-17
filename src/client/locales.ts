@@ -733,6 +733,7 @@ const TEXT = {
   'setup.agentCliMissing': ['找不到智能体的 GitHub CLI。', SETUP_PROBLEMS.agentCliMissing[1]],
   'setup.agentCliSignedOut': ['智能体的 GitHub CLI 读不到它的账号。', SETUP_PROBLEMS.agentCliSignedOut[1]],
   'setup.agentCliNoAccount': ['智能体的 GitHub CLI 没有报告 GitHub 账号。', SETUP_PROBLEMS.agentCliNoAccount[1]],
+  'setup.agentCliNoNotifications': ['智能体的 GitHub 令牌读不到通知，因此永远收不到请求。用 `gh auth refresh -h github.com -s notifications` 加上 notifications 权限。', SETUP_PROBLEMS.agentCliNoNotifications[1]],
   'setup.repositoryUnreadable': ['@{account} 读不到 {repository}。', SETUP_PROBLEMS.repositoryUnreadable[1]],
   'setup.repositoryUnreported': ['智能体的 GitHub CLI 没有返回 {repository}。', SETUP_PROBLEMS.repositoryUnreported[1]],
   'setup.repositoryReadOnly': ['@{account} 没有 {repository} 的推送权限。', SETUP_PROBLEMS.repositoryReadOnly[1]],

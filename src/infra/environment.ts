@@ -10,16 +10,24 @@ import type { SubprocessOutputReader, SubprocessRuntime } from '@deepseek-ai/dsh
 import type { Deployment } from '../deployment.ts'
 import { SetupError } from '../setup.ts'
 import { CliError } from './commands.ts'
+import { shimName, windows } from './platform.ts'
 
 const MARKER = '# Written by dsh-superagent on every start; edits are lost.'
 /** Markers of files written under the project's earlier names (`dsh-tag`, `dsh-go`, `dsh-freelancer`), which `dsh-superagent` owns and replaces too. */
 const LEGACY_MARKERS = ['dsh-tag', 'dsh-go', 'dsh-freelancer'].map(name => `# Written by ${name} on every start; edits are lost.`)
+/**
+ * How the marker reads at the start of a shim. A POSIX shim is read by a shell and takes the marker as a comment; a
+ * `cmd.exe` shim cannot comment with `#`, so it carries the same line after `@rem`, which `written` strips again.
+ */
+const markerLine = (marker: string): string => windows ? `@rem ${marker}` : marker
+const ownMarkers: readonly string[] = [MARKER, ...LEGACY_MARKERS]
 /** Commands workers need, which `blockedCommands` cannot block: the shims and git. */
 export const WORKER_COMMANDS: readonly string[] = ['gh', 'git', 'lark-cli']
 export const workerBin = (stateDir: string): string => join(stateDir, 'worker-bin')
 export const workerGitConfig = (stateDir: string): string => join(stateDir, 'worker-gitconfig')
 const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
-const gitQuote = (value: string): string => `"${value.replace(/[\\"]/g, char => `\\${char}`)}"`
+/** Quotes a git configuration value for the `gitconfig` syntax, where a backslash escapes the character after it. */
+export const gitQuote = (value: string): string => `"${value.replace(/[\\"]/g, char => `\\${char}`)}"`
 export const credentialHelper = (cli: string): string => `!${shellQuote(cli)} auth git-credential`
 
 export function sameDirectory(a: string, b: string): boolean {
@@ -60,8 +68,8 @@ export function agentVariables(stateDir: string): Record<string, string | undefi
 /** True when a regular file starts with the dsh-superagent marker in its first two lines; a symbolic link, directory, or other non-regular file never counts as written by dsh-superagent. */
 async function written(file: string): Promise<boolean> {
   if (!(await lstat(file)).isFile()) return false
-  const head = (await readFile(file, 'utf8')).split('\n', 2)
-  return [MARKER, ...LEGACY_MARKERS].some(marker => head.includes(marker))
+  const head = (await readFile(file, 'utf8')).split('\n', 2).map(line => line.trimEnd().replace(/^@rem /, ''))
+  return ownMarkers.some(marker => head.includes(marker))
 }
 async function own(file: string, text: string, mode = 0o644): Promise<void> {
   let foreign = false
@@ -85,18 +93,31 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
   // Workers may be running concurrently: write each shim to a temp file and atomically rename it so no command ever resolves past the shim directory.
   const kept = new Set<string>()
   const shim = async (name: string, body: string): Promise<void> => {
-    const temporary = join(dir, `.${name}.${process.pid}.tmp`)
-    await writeFile(temporary, `#!/bin/sh\n${MARKER}\n${body}\n`, { mode: 0o755 })
-    await rename(temporary, join(dir, name))
-    kept.add(name)
+    const file = shimName(name)
+    const temporary = join(dir, `.${file}.${process.pid}.tmp`)
+    // A `cmd.exe` shim needs the `@echo off` line first and cannot comment with `#`, so the marker follows it as `@rem`.
+    await writeFile(temporary, windows ? `@echo off\r\n${markerLine(MARKER)}\r\n${body}\r\n` : `#!/bin/sh\n${MARKER}\n${body}\n`, { mode: 0o755 })
+    await rename(temporary, join(dir, file))
+    kept.add(file)
   }
   const withoutShims = [
     `self=${shellQuote(dir)}`, 'rest=', 'IFS=:', 'set -f',
     'for entry in $PATH; do [ "$entry" = "$self" ] || rest="${rest:+$rest:}$entry"; done',
     'set +f', 'unset IFS', 'PATH=$rest', 'export PATH',
   ].join('\n')
-  const run = (program: string): string => `${withoutShims}\nexec ${shellQuote(program)} "$@"`
-  const fail = (message: string): string => `echo ${shellQuote(message)} >&2\nexit 1`
+  // A `cmd.exe` shim strips the shim directory with literal substitutions, which covers the directory at the start, in
+  // the middle, and alone. It is skipped for a state directory holding `%` or `"`, where the substitution syntax breaks.
+  const literal = !/[%"]/.test(dir)
+  const stripWindows = [
+    'setlocal',
+    ...literal ? [`set "PATH=%PATH:${dir};=%"`, `set "PATH=%PATH:;${dir}=%"`, `set "PATH=%PATH:${dir}=%"`] : [],
+  ].join('\r\n')
+  const run = (program: string): string => windows
+    ? `${stripWindows}\r\ncall "${program.replaceAll('"', '""')}" %*`
+    : `${withoutShims}\nexec ${shellQuote(program)} "$@"`
+  const fail = (message: string): string => windows
+    ? `echo ${message.replace(/[&|<>^]/g, char => `^${char}`)} 1>&2\r\nexit /b 1`
+    : `echo ${shellQuote(message)} >&2\nexit 1`
   await shim('gh', run(github.cli))
   await shim('lark-cli', feishu ? run(feishu.cli) : fail('lark-cli is unavailable: this installation has no Feishu bot.'))
   for (const name of new Set(blockedCommands.filter(name => !WORKER_COMMANDS.includes(name)))) {

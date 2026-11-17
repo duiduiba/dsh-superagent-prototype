@@ -3,6 +3,7 @@ import { Engine, MemoryRepositories, key, type Assessor, type Executor, type Thr
 import { backfillChat, consumerRetry, feishuKind, feishuTriggerId, feishuRef, feishuTime, feishuTrigger, historyEvent }
   from '../src/sources/feishu.ts'
 import { KV } from '../src/kv.ts'
+import { windows } from '../src/infra/platform.ts'
 import { apply as applyFeishu, pollThreads as pollFeishuThreads } from '../src/sources/feishu.ts'
 import { runFeishu } from '../src/sources/feishu-loops.ts'
 import { commentTrigger, githubAddress, githubChannel, issueTrigger, type GithubComment, type GithubIssue } from '../src/sources/github-trigger.ts'
@@ -1032,7 +1033,11 @@ describe('feishu event consumer', () => {
   let running: Promise<unknown> | undefined
   // The fake CLI is a real process, which starts slower while the whole suite runs.
   const until = { timeout: 10_000 }
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'feishu-consumer-')); controller = new AbortController() })
+  beforeEach((context) => {
+    // The fake bot CLI below is a `#!/bin/sh` script that prints event lines, which needs a POSIX shell to run.
+    if (windows) context.skip()
+    dir = mkdtempSync(join(tmpdir(), 'feishu-consumer-')); controller = new AbortController()
+  })
   afterEach(async () => {
     controller.abort()
     await running

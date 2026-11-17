@@ -24,7 +24,10 @@ const service = (pid: number, profile = 'superagent') => `${pid} node node /opt/
 /** Write active process lines (`pid ucomm args`) for the fake ps binary. Entries prefixed with `after:<pid> ` appear only after that PID exits. */
 const processes = (...lines: string[]) => writeFileSync(join(root, 'ps.txt'), lines.map(line => `${line}\n`).join(''))
 const started = (...lines: string[]) => writeFileSync(join(root, 'ps-started.txt'), lines.map(line => `${line}\n`).join(''))
-beforeEach(() => {
+beforeEach((context) => {
+  // `scripts/dsh-superagent` needs `ps`, `tmux`, `/bin/sh`, and SIGINT; `scripts/dsh-superagent.ps1` is its Windows
+  // counterpart, which has no hermetic stand-ins here and is exercised against a real service instead.
+  if (process.platform === 'win32') context.skip()
   root = mkdtempSync(join(tmpdir(), 'service script '))
   mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
   copyFileSync(join(import.meta.dirname, '..', 'scripts', 'dsh-superagent'), join(root, 'scripts', 'dsh-superagent'))

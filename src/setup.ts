@@ -11,6 +11,7 @@ export const SETUP_PROBLEMS = {
   agentCliMissing: ['github', 'The agent GitHub CLI was not found.'],
   agentCliSignedOut: ['github', 'The agent GitHub CLI cannot read its account.'],
   agentCliNoAccount: ['github', 'The agent GitHub CLI did not report a GitHub account.'],
+  agentCliNoNotifications: ['github', 'The agent GitHub CLI cannot read notifications, so it would never learn of a request. Add the `notifications` scope with `gh auth refresh -h github.com -s notifications`.'],
   repositoryUnreadable: ['github', '@{account} cannot read {repository}.'],
   repositoryUnreported: ['github', 'The agent GitHub CLI did not return {repository}.'],
   repositoryReadOnly: ['github', '@{account} cannot push to {repository}.'],

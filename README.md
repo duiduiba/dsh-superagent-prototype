@@ -29,6 +29,13 @@ Read the numbered documents in order; each builds only on the ones before it.
 - [006 Deployment](docs/006-deployment.md): manual setup, configuration, upgrades and troubleshooting
 - [007 Architecture](docs/007-architecture.md)
 - [008 Cookbook](docs/008-cookbook.md): adding a Source
+- [009 Windows](docs/009-windows.md): the platform layer, the PowerShell service manager, and what differs
+
+## Windows
+
+This checkout also runs on Windows, through a change of platform layer rather than of design: `PATHEXT` resolution,
+`.cmd` worker shims, a PowerShell prepare command, and `scripts/dsh-superagent.ps1` in place of tmux.
+[009 Windows](docs/009-windows.md) lists every difference and what stays POSIX.
 
 ## Development
 
